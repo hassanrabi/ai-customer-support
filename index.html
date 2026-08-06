@@ -210,39 +210,32 @@
           </div>
         </div>
 
-        <!-- Support form: visible by default -->
-        <form id="supportForm" class="ai-form" novalidate>
-          <div class="field">
-            <label for="name">Name</label>
-            <input type="text" id="name" name="name" placeholder="Jane Doe" required />
+        <!-- Scrollable message thread. This opening AI bubble is static markup;
+             every message after that is appended by script.js at runtime. -->
+        <div class="chat-thread" id="chatThread">
+          <div class="chat-bubble chat-bubble-ai">
+            Hi! I'm the LunaWear Assistant. Ask me about an order, sizing, shipping, or returns.
           </div>
-
-          <div class="field">
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" placeholder="jane@email.com" required />
-          </div>
-
-          <div class="field">
-            <label for="message">Message</label>
-            <textarea id="message" name="message" rows="4" placeholder="Where is my order?" required></textarea>
-          </div>
-
-          <button type="submit" class="btn btn-primary btn-full" id="submitBtn">
-            <span class="btn-label">Send Message</span>
-          </button>
-
-          <p class="form-error" id="formError" hidden>
-            ❌ Something went wrong. Please try again.
-          </p>
-        </form>
-
-        <!-- Success state: hidden by default, shown after a successful submit -->
-        <div class="ai-success" id="successState" hidden>
-          <div class="success-icon">✅</div>
-          <h3>Your message has been received.</h3>
-          <p>Our AI support agent is reviewing your request and will respond shortly.</p>
-          <button class="btn btn-secondary" id="resetFormBtn">Send another message</button>
         </div>
+
+        <p class="form-error" id="formError" hidden>
+          ❌ Something went wrong. Please try again.
+        </p>
+
+        <!-- Message input row, pinned under the thread -->
+        <form id="chatForm" class="chat-input-row" novalidate>
+          <label for="chatInput" class="sr-only">Type your message</label>
+          <textarea
+            id="chatInput"
+            name="chatInput"
+            rows="1"
+            placeholder="Type your message…"
+            required
+          ></textarea>
+          <button type="submit" class="btn btn-primary chat-send-btn" id="chatSendBtn">
+            Send
+          </button>
+        </form>
 
       </div>
     </div>
