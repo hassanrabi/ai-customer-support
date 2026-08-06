@@ -1,8 +1,8 @@
 // ============================================================================
 // LUNAWEAR — script.js
-// Handles: mobile navigation toggle + the "Ask LunaWear AI" support form,
-// which submits to an n8n webhook and swaps between form / success / error
-// states based on the response.
+// Handles: mobile navigation toggle + the "Ask LunaWear AI" live chat widget,
+// which sends each message to an n8n webhook and renders the AI's actual
+// reply as a chat bubble in the thread.
 // ============================================================================
 
 // ---------------------------------------------------------------------------
@@ -25,36 +25,45 @@ mainNav.querySelectorAll("a").forEach((link) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. AI CUSTOMER SUPPORT FORM
+// 2. AI CUSTOMER SUPPORT CHAT
 // ---------------------------------------------------------------------------
 
-// Replace this with your real n8n production webhook URL when this page
-// goes live. Example shape: https://your-instance.app.n8n.cloud/webhook/lunawear-support
+// Replace with your real n8n production webhook URL (not the Test URL).
+// The workflow must respond with a "Respond to Webhook" node returning JSON,
+// e.g. { "reply": "Your order shipped yesterday and arrives Thursday." }
 const WEBHOOK_URL = "https://naheed2.app.n8n.cloud/webhook/chat";
 
-const supportForm = document.getElementById("supportForm");
-const submitBtn = document.getElementById("submitBtn");
-const btnLabel = submitBtn.querySelector(".btn-label");
+const chatThread = document.getElementById("chatThread");
+const chatForm = document.getElementById("chatForm");
+const chatInput = document.getElementById("chatInput");
+const chatSendBtn = document.getElementById("chatSendBtn");
 const formError = document.getElementById("formError");
-const successState = document.getElementById("successState");
-const resetFormBtn = document.getElementById("resetFormBtn");
 
-supportForm.addEventListener("submit", async (event) => {
-  // Stop the browser from doing a full page reload on submit
+// A stable ID for this visit, sent with every message. If your n8n workflow
+// stores conversation history (e.g. in a database or n8n's own memory node),
+// this is what lets it tell one visitor's messages apart from another's.
+let sessionId = localStorage.getItem("lunawear-session");
+
+if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    localStorage.setItem("lunawear-session", sessionId);
+}
+chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  // Hide any previous error message before trying again
+  const message = chatInput.value.trim();
+  if (!message) return;
+
   formError.hidden = true;
 
-  // Collect the three field values from the form
-  const payload = {
-    name: document.getElementById("name").value.trim(),
-    email: document.getElementById("email").value.trim(),
-    message: document.getElementById("message").value.trim(),
-  };
+  // Show the visitor's own message immediately, then clear the input
+  addBubble(message, "user");
+  chatInput.value = "";
+  autoResizeInput();
 
-  // Show a loading state on the button so the user knows something is happening
-  setLoading(true);
+  // Show a typing indicator while we wait for n8n to respond
+  const typingBubble = addTypingIndicator();
+  setSending(true);
 
   try {
     const response = await fetch(WEBHOOK_URL, {
@@ -62,45 +71,116 @@ supportForm.addEventListener("submit", async (event) => {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ sessionId, message }),
     });
 
-    // n8n webhooks return a non-2xx status if the workflow itself fails,
-    // so we treat anything outside 200-299 as an error too.
     if (!response.ok) {
       throw new Error(`Webhook responded with status ${response.status}`);
     }
 
-    // Success: hide the form, show the confirmation card
-    showSuccess();
+    const data = await response.json();
+    const reply = extractReply(data);
+
+    typingBubble.remove();
+
+    if (reply) {
+      addBubble(reply, "ai");
+    } else {
+      // The request succeeded, but the workflow didn't return recognizable
+      // reply text — most likely the "Respond to Webhook" node's output
+      // field doesn't match what extractReply() below is looking for.
+      addBubble(
+        "I received that, but didn't get a proper reply from the workflow. Check the n8n \"Respond to Webhook\" node's output format.",
+        "error"
+      );
+    }
   } catch (error) {
     // Network failure, CORS issue, or non-2xx response all land here
-    console.error("LunaWear AI support submission failed:", error);
+    console.error("LunaWear AI chat request failed:", error);
+    typingBubble.remove();
     formError.hidden = false;
   } finally {
-    setLoading(false);
+    setSending(false);
   }
 });
 
-// Lets the visitor send a follow-up message without refreshing the page
-resetFormBtn.addEventListener("click", () => {
-  supportForm.reset();
-  successState.hidden = true;
-  supportForm.hidden = false;
+// Let Enter send the message, but Shift+Enter add a new line
+chatInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    chatForm.requestSubmit();
+  }
 });
 
+// Grow the textarea as the visitor types, up to the CSS max-height
+chatInput.addEventListener("input", autoResizeInput);
+
 /**
- * Toggles the submit button between its normal and loading appearance.
- * @param {boolean} isLoading
+ * Pulls the reply text out of whatever shape n8n sends back. Different
+ * n8n setups return the AI's answer under different key names, so this
+ * checks the common ones rather than assuming just one.
+ * @param {any} data - Parsed JSON body from the webhook response
+ * @returns {string|null}
  */
-function setLoading(isLoading) {
-  submitBtn.disabled = isLoading;
-  btnLabel.textContent = isLoading ? "Sending" : "Send Message";
-  btnLabel.classList.toggle("is-loading", isLoading);
+function extractReply(data) {
+  // Some "Respond to Webhook" configs return an array of items instead
+  // of a single object — unwrap the first item if so.
+  if (Array.isArray(data)) {
+    data = data[0];
+  }
+
+  if (typeof data === "string") return data;
+
+  if (data && typeof data === "object") {
+    return (
+      data.reply ||
+      data.output ||
+      data.text ||
+      data.message ||
+      data.response ||
+      null
+    );
+  }
+
+  return null;
 }
 
-/** Swaps the form out for the success confirmation card. */
-function showSuccess() {
-  supportForm.hidden = true;
-  successState.hidden = false;
+/**
+ * Appends a chat bubble to the thread and scrolls it into view.
+ * @param {string} text
+ * @param {"user"|"ai"|"error"} sender
+ */
+function addBubble(text, sender) {
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble chat-bubble-${sender}`;
+  bubble.textContent = text;
+  chatThread.appendChild(bubble);
+  scrollThreadToBottom();
+  return bubble;
+}
+
+/** Appends the animated three-dot "typing" bubble and returns it so it can be removed later. */
+function addTypingIndicator() {
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble-typing";
+  bubble.innerHTML = "<span></span><span></span><span></span>";
+  chatThread.appendChild(bubble);
+  scrollThreadToBottom();
+  return bubble;
+}
+
+function scrollThreadToBottom() {
+  chatThread.scrollTop = chatThread.scrollHeight;
+}
+
+/** Disables the input and button while a request is in flight. */
+function setSending(isSending) {
+  chatInput.disabled = isSending;
+  chatSendBtn.disabled = isSending;
+}
+
+/** Keeps the message textarea's height in sync with its content. */
+function autoResizeInput() {
+  chatInput.style.height = "auto";
+  chatInput.style.height = `${chatInput.scrollHeight}px`;
 }
