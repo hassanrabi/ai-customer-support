@@ -30,7 +30,7 @@ mainNav.querySelectorAll("a").forEach((link) => {
 
 // Replace this with your real n8n production webhook URL when this page
 // goes live. Example shape: https://your-instance.app.n8n.cloud/webhook/lunawear-support
-const WEBHOOK_URL = "https://YOUR-N8N-DOMAIN/webhook/lunawear-support";
+const WEBHOOK_URL = "https://naheed2.app.n8n.cloud/webhook/chat";
 
 const supportForm = document.getElementById("supportForm");
 const submitBtn = document.getElementById("submitBtn");
